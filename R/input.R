@@ -18,10 +18,11 @@ prep_pred <- function(x, trafo = NULL, which_pred = NULL) {
     which_pred <- p
   }
   if (is.data.frame(x)) {
-    x <- x[[if (p == 1L) 1L else which_pred]]
+    x <- x[[which_pred]]
   } else if (p > 1L) {
     x <- x[, which_pred]
-  } else if (!is.vector(x)) {
+  }
+  if (!is.vector(x)) {
     x <- as.vector(x)
   }
   if (!is.null(trafo)) {
@@ -33,7 +34,7 @@ prep_pred <- function(x, trafo = NULL, which_pred = NULL) {
   if (anyNA(x)) {
     stop("Predictions can't contain NA")
   }
-  if (is.double(x)) unname(x) else as.double(unname(x))
+  return(as.double(unname(x)))
 }
 
 #' Input Checks

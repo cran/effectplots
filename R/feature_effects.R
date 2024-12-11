@@ -12,14 +12,17 @@
 #'   both `y` and predictions are available. Useful to study model bias.
 #' - "pd": Partial dependence (Friedman, 2001): See [partial_dependence()].
 #'   Evaluated at bin averages, not at bin midpoints.
-#' - "ale": Accumulated local effects (Apley, 2020): See [ale()]. Only for numeric X.
+#' - "ale": Accumulated local effects (Apley, 2020): See [ale()].
+#'   Only for continuous features.
 #'
 #' Additionally, corresponding counts/weights are calculated, and
 #' standard deviations of observed y and residuals.
 #'
-#' Numeric X with more than `discrete_m = 5` disjoint values are binned as in
-#' [graphics::hist()] via `breaks`. Before calculating bins, outliers are capped
-#' at +-2 IQR from the quartiles.
+#' Numeric features with more than `discrete_m = 13` disjoint values are binned via
+#' `breaks`. If `breaks` is a single integer or "Sturges", the total bin range is
+#' calculated without values outside +-2 IQR from the quartiles.
+#' Values outside the bin range are placed in the outermost bins. Note that
+#' at most 9997 observations are used to calculate quartiles and IQR.
 #'
 #' All averages and standard deviation are weighted by optional weights `w`.
 #'
@@ -31,55 +34,72 @@
 #' - [ale()].
 #'
 #' @param object Fitted model.
-#' @param v Vector of variable names to calculate statistics.
+#' @param v Variable names to calculate statistics for.
 #' @param data Matrix or data.frame.
 #' @param y Numeric vector with observed values of the response.
 #'   Can also be a column name in `data`. Omitted if `NULL` (default).
-#' @param pred Numeric vector with predictions. If `NULL`, it is calculated as
-#'   `pred_fun(object, data, ...)`. Used to save time if `d()` is to be
-#'   called multiple times.
+#' @param pred Pre-computed predictions (as from `predict()/pred_fun()).
+#'   If `NULL`, it is calculated as `pred_fun(object, data, ...)`.
 #' @param pred_fun Prediction function, by default `stats::predict`.
 #'   The function takes three arguments (names irrelevant): `object`, `data`, and `...`.
 #' @param trafo How should predictions be transformed?
 #'   A function or `NULL` (default). Examples are `log` (to switch to link scale)
 #'   or `exp` (to switch from link scale to the original scale).
+#'   Applied after `which_pred`.
 #' @param which_pred If the predictions are multivariate: which column to pick
-#'   (integer or column name). By default `NULL` (picks last column).
+#'   (integer or column name). By default `NULL` (picks last column). Applied before
+#'   `trafo`.
 #' @param w Optional vector with case weights. Can also be a column name in `data`.
-#' @param breaks An integer, vector, string or function specifying the bins
-#'   of the numeric X variables as in [graphics::hist()]. The default is "Sturges".
-#'   To allow varying values of `breaks` across variables, it can be a list of the
-#'   same length as `v`, or a *named* list with `breaks` for certain variables.
+#'   Having observations with non-positive weight is equivalent to excluding them.
+#' @param breaks An integer, vector, or "Sturges" (the default) used to determine
+#'   bin breaks of continuous features. Values outside the total bin range are placed
+#'   in the outmost bins. To allow varying values of `breaks` across features,
+#'   `breaks` can be a list of the same length as `v`, or a *named* list with breaks
+#'   for certain variables.
 #' @param right Should bins be right-closed? The default is `TRUE`.
-#'   Vectorized over `v`. Only relevant for numeric X.
-#' @param discrete_m Numeric X variables with up to this number of unique values
-#'   should not be binned and treated as a factor (after calculating partial dependence)
-#'   The default is 5. Vectorized over `v`.
-#' @param outlier_iqr Outliers of a numeric X are capped via the boxplot rule, i.e.,
-#'   outside `outlier_iqr` * IQR from the quartiles. The default is 2 is more
-#'   conservative than the usual rule to account for right-skewed distributions.
-#'   Set to 0 or `Inf` for no capping. Note that at most 10k observations are sampled
-#'   to calculate quartiles. Vectorized over `v`.
+#'   Vectorized over `v`. Only relevant for continuous features.
+#' @param discrete_m Numeric features with up to this number of unique values should not
+#'   be binned but rather treated as discrete. The default is 13. Vectorized over `v`.
+#' @param outlier_iqr If `breaks` is an integer or "Sturges", the breaks of a continuous
+#'   feature are calculated without taking into account feature values outside
+#'   quartiles +- `outlier_iqr` * IQR (where <= 9997 values are used to calculate the
+#'   quartiles). To let the breaks cover the full data range, set `outlier_iqr` to
+#'   0 or `Inf`. Vectorized over `v`.
 #' @param calc_pred Should predictions be calculated? Default is `TRUE`. Only relevant
 #'   if `pred = NULL`.
 #' @param pd_n Size of the data used for calculating partial dependence.
 #'   The default is 500. For larger `data` (and `w`), `pd_n` rows are randomly sampled.
-#'   Each variable specified by `v` uses the same subsample. Set to 0 to omit.
+#'   Each variable specified by `v` uses the same sample.
+#'   Set to 0 to omit PD calculations.
 #' @param ale_n Size of the data used for calculating ALE.
 #'   The default is 50000. For larger `data` (and `w`), `ale_n` rows are randomly
-#'   sampled. Each variable specified by `v` uses the same subsample. Set to 0 to omit.
+#'   sampled. Each variable specified by `v` uses the same sample.
+#'   Set to 0 to omit ALE calculations.
 #' @param ale_bin_size Maximal number of observations used per bin for ALE calculations.
 #'   If there are more observations in a bin, `ale_bin_size` indices are
-#'   randomly sampled. The default is 200. Applied after subsampling regarding `ale_n`.
-#' @param seed Optional random seed (an integer) used for:
-#'   - Partial dependence: select background data if `n > pd_n`.
-#'   - ALE: select background data if `n > ale_n` and for bins > `ale_bin_size`.
-#'   - Capping X: quartiles are selected based on 10k observations.
+#'   randomly sampled. The default is 200. Applied after sampling regarding `ale_n`.
+#' @param seed Optional integer random seed used for:
+#'   - *Partial dependence:* select background data if `n > pd_n`.
+#'   - *ALE:* select background data if `n > ale_n`, and for bins > `ale_bin_size`.
+#'   - *Calculating breaks:* The bin range is determined without values outside
+#'     quartiles +- 2 IQR using a sample of <= 9997 observations to calculate quartiles.
 #' @param ... Further arguments passed to `pred_fun()`, e.g., `type = "response"` in
 #'   a `glm()` or (typically) `prob = TRUE` in classification models.
 #' @returns
-#'   A list (of class "EffectData") with a data.frame of statistics per feature. Use
-#'   single bracket subsetting to select part of the output.
+#'   A list (of class "EffectData") with a data.frame per feature having columns:
+#'
+#'   - `bin_mid`: Bin mid points. In the plots, the bars are centered around these.
+#'   - `bin_width`: Absolute width of the bin. In the plots, these equal the bar widths.
+#'   - `bin_mean`: For continuous features, the (possibly weighted) average feature
+#'     value within bin. For discrete features equivalent to `bin_mid`.
+#'   - `N`: The number of observations within bin.
+#'   - `weight`: The weight sum within bin. When `w = NULL`, equivalent to `N`.
+#'   - Different statistics, depending on the function call.
+#'
+#'   Use single bracket subsetting to select part of the output. Note that each
+#'   data.frame contains an attribute "discrete" with the information whether the
+#'   feature is discrete or continuous. This attribute might be lost when you manually
+#'   modify the data.frames.
 #' @seealso [plot.EffectData()], [update.EffectData()], [partial_dependence()],
 #'   [ale()], [average_observed], [average_predicted()], [bias()]
 #' @references
@@ -115,7 +135,7 @@ feature_effects.default <- function(
     w = NULL,
     breaks = "Sturges",
     right = TRUE,
-    discrete_m = 5L,
+    discrete_m = 13L,
     outlier_iqr = 2,
     calc_pred = TRUE,
     pd_n = 500L,
@@ -140,9 +160,8 @@ feature_effects.default <- function(
   stopifnot(
     n >= 2L,
     basic_check(y, n = n, nms = nms),
-    basic_check(pred, n = n, nms = nms),
     basic_check(w, n = n, nms = nms)
-  )  # We don't need n anymore
+  )
 
   if (!is.null(seed)) {
     # old <- .Random.seed
@@ -170,6 +189,9 @@ feature_effects.default <- function(
 
   # Prepare pred (part 1)
   if (!is.null(pred)) {
+    if (NROW(pred) != n) {
+      stop("'pred' must have the same length as nrow(data).")
+    }
     pred <- prep_pred(pred, trafo = trafo, which_pred = which_pred)
   }
 
@@ -218,6 +240,9 @@ feature_effects.default <- function(
       stop("Unsupported data type for ", paste(v, collapse = ", "))
     }
   }
+
+  # We need this subset for fast quartiles and fast check if numeric x is discrete
+  ix_sub <- if (nrow(data) > 9997L) sample.int(nrow(data), 9997L)
 
   # Combine pred, y, and resid. If df, we can easier drop columns in grouped_stats()
   PYR <- list(pred = pred, y = y, resid = if (!is.null(pred) && !is.null(y)) y - pred)
@@ -269,6 +294,7 @@ feature_effects.default <- function(
       pd_data = pd_data,
       ale_data = ale_data,
       ale_bin_size = ale_bin_size,
+      ix_sub = ix_sub,
       ...
     ),
     SIMPLIFY = FALSE
@@ -288,7 +314,7 @@ feature_effects.default <- function(
   structure(out, class = "EffectData")
 }
 
-#' @describeIn feature_effects Method for "ranger" models.
+#' @describeIn feature_effects Method for ranger models.
 #' @export
 feature_effects.ranger <- function(
     object,
@@ -302,7 +328,7 @@ feature_effects.ranger <- function(
     w = NULL,
     breaks = "Sturges",
     right = TRUE,
-    discrete_m = 5L,
+    discrete_m = 13L,
     outlier_iqr = 2,
     calc_pred = TRUE,
     pd_n = 500L,
@@ -337,7 +363,7 @@ feature_effects.ranger <- function(
   )
 }
 
-#' @describeIn feature_effects Method for DALEX "explainer".
+#' @describeIn feature_effects Method for DALEX explainer.
 #' @export
 feature_effects.explainer <- function(
   object,
@@ -351,7 +377,7 @@ feature_effects.explainer <- function(
   w = object$weights,
   breaks = "Sturges",
   right = TRUE,
-  discrete_m = 5L,
+  discrete_m = 13L,
   outlier_iqr = 2,
   calc_pred = TRUE,
   pd_n = 500L,
@@ -359,6 +385,70 @@ feature_effects.explainer <- function(
   ale_bin_size = 200L,
   ...
 ) {
+  feature_effects.default(
+    object,
+    v = v,
+    data = data,
+    y = y,
+    pred = pred,
+    pred_fun = pred_fun,
+    trafo = trafo,
+    which_pred = which_pred,
+    w = w,
+    breaks = breaks,
+    right = right,
+    discrete_m = discrete_m,
+    outlier_iqr = outlier_iqr,
+    calc_pred = calc_pred,
+    pd_n = pd_n,
+    ale_n = ale_n,
+    ale_bin_size = ale_bin_size,
+    ...
+  )
+}
+
+#' @describeIn feature_effects Method for H2O models.
+#' @export
+feature_effects.H2OModel <- function(
+    object,
+    data,
+    v = object@parameters$x,
+    y = NULL,                   #  object@parameters$y does not work for multi-outputs
+    pred = NULL,
+    pred_fun = NULL,
+    trafo = NULL,
+    which_pred = NULL,
+    w = object@parameters$weights_column$column_name,
+    breaks = "Sturges",
+    right = TRUE,
+    discrete_m = 13L,
+    outlier_iqr = 2,
+    calc_pred = TRUE,
+    pd_n = 500L,
+    ale_n = 50000L,
+    ale_bin_size = 200L,
+    ...
+) {
+  if (!requireNamespace("h2o", quietly = TRUE)) {
+    stop("Package 'h2o' not installed")
+  }
+  stopifnot(is.data.frame(data) || inherits(data, "H2OFrame"))
+  if (inherits(data, "H2OFrame")) {
+    if (is.null(pred) && calc_pred) {
+      pred <- prep_pred(
+        stats::predict(object, data, ...), trafo = trafo, which_pred = which_pred
+      )
+    }
+    data <- as.data.frame(data)
+  }
+
+  if (is.null(pred_fun)) {
+    pred_fun <- function(model, data, ...) {
+      xvars <- model@parameters$x
+      stats::predict(model, h2o::as.h2o(collapse::ss(data, , xvars)), ...)
+    }
+  }
+
   feature_effects.default(
     object,
     v = v,
@@ -395,6 +485,7 @@ feature_effects.explainer <- function(
 #' @param ale_data The output of .subsample() or `NULL`.
 #' @param PYR A data.frame with predicted, observed, and residuals (if available). Can
 #'   be `NULL` if none of them are available.
+#' @param ix_sub Subset of 9997 indices, or `NULL` (if nrow(data) <= 9997).
 #' @inheritParams feature_effects
 #' @returns A data.frame with effect statistics.
 calculate_stats <- function(
@@ -413,66 +504,61 @@ calculate_stats <- function(
     pd_data,
     ale_data,
     ale_bin_size,
+    ix_sub,
     ...
 ) {
-  if (is.double(x)) {
-    # {collapse} seems to distinguish positive and negative zeros
-    # https://github.com/SebKrantz/collapse/issues/648
-    # Adding 0 to a double turns negative 0 to positive ones (ISO/IEC 60559)
-    collapse::setop(x, "+", 0.0)
-  }
-  num <- is_continuous(x, m = discrete_m)
+  # "factor", "double", "integer", "logical", "character"
+  orig_type <- if (is.factor(x)) "factor" else typeof(x)
+  was_ordered <- is.ordered(x)
+  lev <- if (is.factor(x)) levels(x)
 
-  if (is.null(PYR) && is.null(pd_data) && (!num || is.null(ale_data))) {
+  x <- factor_or_double(x, m = discrete_m, ix_sub = ix_sub)
+  discrete <- !is.numeric(x)
+
+  if (is.null(PYR) && is.null(pd_data) && (discrete || is.null(ale_data))) {
     return(NULL)
   }
 
   sd_cols <- setdiff(colnames(PYR), "pred")  # Can be NULL
 
   # DISCRETE
-  if (!num) {
-    # We need original unique values of g later for PDP, e.g., TRUE/FALSE.
-    # For factors, the order is equal to levels(droplevels(x)) + NA
-    # Still, this part could be replaced (except for doubles) by parseing rownames(M)
-    g <- sort(collapse::funique(x), na.last = TRUE)
-
-    x <- if (is.factor(x)) collapse::fdroplevels(x) else collapse::qF(x, sort = TRUE)
-
-    # Ordered by levels(x) (+ NA). x has no empty levels anymore -> same order as g
+  if (discrete) {
     M <- grouped_stats(PYR, g = x, w = w, sd_cols = sd_cols)
+
+    # We need original unique values of g later for PDP, e.g., TRUE/FALSE.
+    # Doubles might lose digits. This should not be a problem though.
+    g <- parse_rownames(rownames(M), type = orig_type, ord = was_ordered, lev = lev)
     out <- data.frame(bin_mid = g, bin_width = 0.7, bin_mean = g, M)
-    rownames(out) <- NULL
+    if (orig_type != "factor") {
+      out <- out[order(g, na.last = TRUE), ]
+    }
+    if (orig_type %in% c("integer", "double") && length(stats::na.omit(g)) > 1L) {
+      out$bin_width <- min(diff(out$bin_mid), na.rm = TRUE) * 0.7
+    }
   } else {
-    # "CONTINUOUS" case. Tricky because there can be empty bins.
-    if (!is.double(x)) {
-      x <- as.double(x)
-    }
-    if (outlier_iqr > 0 && is.finite(outlier_iqr)) {  # could move in front of if branch
-      x <- wins_iqr(x, m = outlier_iqr)
-    }
-    br <- hist2(x, breaks = breaks)
-    mids <- 0.5 * (br[-1L] + br[-length(br)])
-    gix <- seq_along(mids)
-    bin_width <- diff(br)
+    breaks <- fbreaks(x, breaks = breaks, outlier_iqr = outlier_iqr, ix_sub = ix_sub)
+    mids <- 0.5 * (breaks[-1L] + breaks[-length(breaks)])
+    bin_width <- diff(breaks)
 
-    ix <- collapse::qF(findInterval2(x, breaks = br, right = right), sort = FALSE)
+    # Grouped stats
+    ix <- fcut(x, breaks = breaks, right = right, explicit_na = TRUE)
+    M <- grouped_stats(PYR, g = ix, w = w, sd_cols = sd_cols)
 
-    M <- cbind(
-      bin_mean = collapse::fmean.default(x, g = ix, w = w),
-      grouped_stats(PYR, g = ix, w = w, sd_cols = sd_cols)
-    )
-    if (is.na(rownames(M)[nrow(M)])) {
+    if (anyNA(rownames(M))) {
       mids <- c(mids, NA)
-      gix <- c(gix, NA)
       bin_width <- c(bin_width, NA)  #  Can't be plotted anyway
     }
 
-    out <- data.frame(
-      bin_mid = mids, bin_width = bin_width, bin_mean = mids, N = 0, weight = 0
-    )
-    reindex <- match(as.integer(rownames(M)), gix)
-    out[reindex, colnames(M)] <- M  # Fill the gaps and rearrange in right order
+    # Calculate bin_means, clip outliers, and replace missings (where possible)
+    bin_means <- collapse::fmean(x, g = ix, w = w, use.g.names = FALSE)
+    bad <- is.na(bin_means)
+    bin_means[bad] = mids[bad]
+    bin_means <- pmax(pmin(bin_means, breaks[length(breaks)]), breaks[1L])
+
+    out <- data.frame(bin_mid = mids, bin_width = bin_width, bin_mean = bin_means, M)
   }
+  rownames(out) <- NULL
+  attr(out, "discrete") <- discrete
 
   # Add partial dependence
   if (!is.null(pd_data)) {
@@ -491,13 +577,13 @@ calculate_stats <- function(
 
   # Add ALE
   if (!is.null(ale_data)) {
-    out$ale <- NA
-    if (num) {
+    out$ale <- NA_real_
+    if (!discrete) {
       ale <- .ale(
         object = object,
         v = v,
         data = ale_data$X,
-        breaks = br,
+        breaks = breaks,
         right = right,  # does not matter because we pass g
         pred_fun = pred_fun,
         trafo = trafo,
@@ -513,16 +599,12 @@ calculate_stats <- function(
       cvars <- intersect(c("pd", "pred_mean", "y_mean"), colnames(out))
       if (length(cvars)) {
         w_ok <- out$weight[ok]
+        ale_mids <- 0.5 * (ale + c(0, ale[-length(ale)]))  # average ALE per bin
         ale <- ale + collapse::fmean(out[[cvars[1L]]][ok], na.rm = TRUE, w = w_ok) -
-          collapse::fmean(ale, w = w_ok)
+          collapse::fmean(ale_mids, w = w_ok)
       }
       out$ale[ok] <- ale
     }
-  }
-
-  # Convert non-numeric levels *after* calculation of partial dependence and ale!
-  if (!num && !is.factor(out$bin_mean)) {
-    out$bin_mid <- out$bin_mean <- factor(out$bin_mean)
   }
   return(out)
 }

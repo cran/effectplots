@@ -11,8 +11,8 @@
   byrow = TRUE,
   share_y = c("no", "all", "rows", "cols"),
   ylim = NULL,
-  cat_lines = TRUE,
-  num_points = FALSE,
+  discrete_lines = TRUE,
+  continuous_points = FALSE,
   title = "",
   subplot_titles = TRUE,
   ylab = NULL,
@@ -23,7 +23,7 @@
   fill = getOption("effectplots.fill"),
   alpha = 1,
   bar_height = 1,
-  bar_width = 0.7,
+  bar_width = 1,
   bar_measure = c("weight", "N"),
   wrap_x = 10,
   rotate_x = 0,
@@ -48,13 +48,13 @@ Only for multiple plots.}
 \item{share_y}{Should y axis be shared across subplots? The default is "no".
 Other choices are "all", "rows", and "cols". Note that this currently does not
 take into account error bars/ribbons.
-Has mo effect if \code{ylim} is passed. Only for multiple plots.}
+Has no effect if \code{ylim} is passed. Only for multiple plots.}
 
 \item{ylim}{A vector of length 2 with manual y axis limits, or a list thereof.}
 
-\item{cat_lines}{Show lines for non-numeric features. Default is \code{TRUE}.}
+\item{discrete_lines}{Show lines for discrete features. Default is \code{TRUE}.}
 
-\item{num_points}{Show points for numeric features. Default is \code{FALSE}.}
+\item{continuous_points}{Show points for continuous features. Default is \code{FALSE}.}
 
 \item{title}{Overall plot title, by default \code{""} (no title).}
 
@@ -73,7 +73,7 @@ statistics plotted, or \code{NULL} (default).}
 \item "ci": Z confidence intervals using sqrt(N) as standard error of the mean,
 \item "ciw": Like "ci", but using sqrt(weight) as standard error of the mean, or
 \item "sd": standard deviations.
-Ribbons for numeric X, error bars for categorical X.
+Ribbons for continuous features, and error bars otherwise.
 }}
 
 \item{ci_level}{The nominal level of the Z confidence intervals (only when
@@ -90,7 +90,7 @@ To change globally, set \verb{options(effectplots.fill = new color)}.}
 
 \item{bar_height}{Relative bar height (default 1). Set to 0 for no bars.}
 
-\item{bar_width}{Relative bar width of non-numeric features, by default 0.7.}
+\item{bar_width}{Bar width multiplier (for discrete features). By default 1.}
 
 \item{bar_measure}{What should bars represent? Either "weight" (default) or "N".}
 
@@ -114,7 +114,9 @@ Otherwise, an object of class "patchwork", or a "plotly" subplot.
 \description{
 Versatile plot function for an "EffectData" object. By default, all calculated
 statistics (except "resid_mean") are shown. To select certain statistics,
-use the \code{stats} argument. Set \code{plotly = TRUE} for interactive plots.
+use the \code{stats} argument. Set \code{plotly = TRUE} for interactive plots. Note that
+all statistics are plotted at bin means, except for ALE
+(shown at right bin breaks).
 }
 \examples{
 fit <- lm(Sepal.Length ~ ., data = iris)

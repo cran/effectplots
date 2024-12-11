@@ -1,17 +1,80 @@
-.num <- function(x) {
-  f <- function(z) is.numeric(z$bin_mean)
+#' Is "EffectData" Discrete
+#'
+#' Internal function that shows which of the list elements in an object `x` of class
+#' "EffectData" is to be considered as numeric or not.
+#'
+#' @noRd
+#' @keywords internal
+#'
+#' @param x An object of class "EffectData".
+#' @returns
+#'   A logical vector of the same length as `x` with the information whether the
+#'   feature of `x` is to be treated as numeric or not.
+is_discrete <- function(x) {
+  f <- function(z) {
+    out <- attr(z, "discrete")
+    if (is.null(out)) {
+      stop("Attribute 'discrete' not found.")
+    }
+    return(out)
+  }
   if (inherits(x, "EffectData")) {
     return(vapply(x, FUN = f, FUN.VALUE = logical(1L), USE.NAMES = FALSE))
   }
   f(x)
 }
 
+#' Get Statistics from "EffectData" Object
+#'
+#' Internal function that returns a character vector of statistics present in `x`.
+#' Subset of `c("pred_mean", "y_mean", "resid_mean", "pd", "ale")`.
+#'
+#' @noRd
+#' @keywords internal
+#'
+#' @param x An object of class "EffectData".
+#' @returns
+#'   A character vector of statistics names present in `x`.
 .stats <- function(x) {
   if (inherits(x, "EffectData")) {
     x <- x[[1L]]
   }
   statistics <- c("pred_mean", "y_mean", "resid_mean", "pd", "ale")
   return(intersect(statistics, colnames(x)))
+}
+
+#' Converts Rownames to Original Type
+#'
+#' Internal function used in `calculate_stats()` to turn rownames `x` of a grouped
+#' aggregation data back to the original `type`. For doubles, we can lose precision,
+#' but this should not a problem here.
+#'
+#' @noRd
+#' @keywords internal
+#'
+#' @param x A character vector of row names, may contain `NA`.
+#' @param type One of "factor", "double", "integer", "logical", and "character".
+#' @param ord Is the factor ordered? By default `FALSE`. Only relevant for factors.
+#' @param lev If type = "factor", its original levels.
+#' @returns
+#'   A data.frame with variables not in `to_stack`, a column "varying_" with
+#'   the column name from `to_stack`, and finally a column "value_" with stacked values.
+parse_rownames <- function(x, type, ord = FALSE, lev = NULL) {
+  if (!is.character(x)) {
+    stop("Row names must be strings")
+  }
+  if (type == "factor" && is.null(lev)) {
+    stop("Need 'lev' for type = 'factor'.")
+  }
+  switch(
+    type,
+    factor = factor(x, levels = lev, ordered = ord),
+    double = as.double(x),
+    integer = as.integer(x),
+    logical = as.logical(x),
+    character = x,
+    stop("Can only handle features of type factor, double, integer, logical, and character.")
+  )
 }
 
 # -> plot()
@@ -68,8 +131,7 @@ get_ylab <- function(lines) {
     )
     return(out)
   }
-  # No "average" (that would be overly specific)
-  if ("y_mean" %in% lines) "Response" else "Prediction"
+  return("Effect")
 }
 
 common_range <- function(x, stat_info) {

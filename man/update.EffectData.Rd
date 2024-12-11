@@ -7,8 +7,10 @@
 \method{update}{EffectData}(
   object,
   sort_by = c("no", "pd", "pred_mean", "y_mean", "resid_mean", "ale"),
+  to_factor = FALSE,
   collapse_m = 30L,
   collapse_by = c("weight", "N"),
+  drop_empty = FALSE,
   drop_below_n = 0,
   drop_below_weight = 0,
   na.rm = FALSE,
@@ -22,13 +24,19 @@
 should the results be sorted? The default is "no" (no sorting). Calculated
 after all other update steps, e.g., after collapsing or dropping rare levels.}
 
-\item{collapse_m}{If a categorical X has more than \code{collapse_m} levels,
-rare levels are collapsed into a new level "Other". Standard deviations are
+\item{to_factor}{Should discrete features be treated as factors?
+In combination with \code{collapse_m}, this can be used to collapse rare values of
+discrete numeric features.}
+
+\item{collapse_m}{If a factor or character feature has more than \code{collapse_m} levels,
+rare levels are collapsed into a new level "other". Standard deviations are
 collapsed via root of the weighted average variances. The default is 30.
 Set to \code{Inf} for no collapsing.}
 
 \item{collapse_by}{How to determine "rare" levels in \code{collapse_m}?
 Either "weight" (default) or "N". Only matters in situations with case weights \code{w}.}
+
+\item{drop_empty}{Drop empty bins. Equivalent to \code{drop_below_n = 1}.}
 
 \item{drop_below_n}{Drop bins with N below this value. Applied after collapsing.}
 
@@ -40,15 +48,17 @@ collapsing.}
 \item{...}{Currently not used.}
 }
 \value{
-An object of class "EffectData".
+A modified object of class "EffectData".
 }
 \description{
 Updates an "EffectData" object by
 \itemize{
-\item sorting the variables by their importance, see \code{\link[=effect_importance]{effect_importance()}},
+\item turning discrete values to factor (especially useful with the next option),
 \item collapsing levels of categorical variables with many levels,
-\item dropping small bins, or
-\item dropping bins with missing name.
+\item dropping empty bins,
+\item dropping small bins,
+\item dropping bins with missing name, or
+\item sorting the variables by their importance, see \code{\link[=effect_importance]{effect_importance()}}-
 }
 
 Except for \code{sort_by}, all arguments are vectorized, i.e., you can

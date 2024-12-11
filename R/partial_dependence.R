@@ -2,7 +2,7 @@
 #'
 #' @description
 #'
-#' Calculates PD for one or multiple `X` variables.
+#' Calculates PD for one or multiple features.
 #'
 #' PD was introduced by Friedman (2001) to study the (main) effects
 #' of a ML model. PD of a model f and variable `X` at a certain value g
@@ -17,9 +17,10 @@
 #' and eventually weighted by `w`.
 #'
 #' @inheritParams feature_effects
-#' @param seed Optional random seed (an integer) used for:
-#'   - Partial dependence: select background data if `n > pd_n`.
-#'   - Capping X: quartiles are selected based on 10k observations.
+#' @param seed Optional integer random seed used for:
+#'   - *Partial dependence:* select background data if `n > pd_n`.
+#'   - *Calculating breaks:* The bin range is determined without values outside
+#'     quartiles +- 2 IQR using a sample of <= 9997 observations to calculate quartiles.
 #' @inherit feature_effects return
 #' @references
 #'   Friedman, Jerome H. 2001, *Greedy Function Approximation: A Gradient Boosting Machine.*
@@ -49,7 +50,7 @@ partial_dependence.default <- function(
     w = NULL,
     breaks = "Sturges",
     right = TRUE,
-    discrete_m = 5L,
+    discrete_m = 13L,
     outlier_iqr = 2,
     pd_n = 500L,
     seed = NULL,
@@ -76,7 +77,7 @@ partial_dependence.default <- function(
   )
 }
 
-#' @describeIn partial_dependence Default method.
+#' @describeIn partial_dependence Method for ranger models.
 #' @export
 partial_dependence.ranger <- function(
     object,
@@ -88,7 +89,7 @@ partial_dependence.ranger <- function(
     w = NULL,
     breaks = "Sturges",
     right = TRUE,
-    discrete_m = 5L,
+    discrete_m = 13L,
     outlier_iqr = 2,
     pd_n = 500L,
     seed = NULL,
@@ -117,7 +118,7 @@ partial_dependence.ranger <- function(
   )
 }
 
-#' @describeIn partial_dependence Default method.
+#' @describeIn partial_dependence Method for DALEX explainers.
 #' @export
 partial_dependence.explainer <- function(
     object,
@@ -129,7 +130,7 @@ partial_dependence.explainer <- function(
     w = object$weights,
     breaks = "Sturges",
     right = TRUE,
-    discrete_m = 5L,
+    discrete_m = 13L,
     outlier_iqr = 2,
     pd_n = 500L,
     seed = NULL,
@@ -137,6 +138,56 @@ partial_dependence.explainer <- function(
 ) {
   partial_dependence.default(
     object = object[["model"]],
+    v = v,
+    data = data,
+    pred_fun = pred_fun,
+    trafo = trafo,
+    which_pred = which_pred,
+    w = w,
+    breaks = breaks,
+    right = right,
+    discrete_m = discrete_m,
+    outlier_iqr = outlier_iqr,
+    pd_n = pd_n,
+    seed = seed,
+    ...
+  )
+}
+
+#' @describeIn partial_dependence Method for H2O models.
+#' @export
+partial_dependence.H2OModel <- function(
+    object,
+    data,
+    v = object@parameters$x,
+    pred_fun = NULL,
+    trafo = NULL,
+    which_pred = NULL,
+    w = object@parameters$weights_column$column_name,
+    breaks = "Sturges",
+    right = TRUE,
+    discrete_m = 13L,
+    outlier_iqr = 2,
+    pd_n = 500L,
+    seed = NULL,
+    ...
+) {
+  if (!requireNamespace("h2o", quietly = TRUE)) {
+    stop("Package 'h2o' not installed")
+  }
+  stopifnot(is.data.frame(data) || inherits(data, "H2OFrame"))
+  if (inherits(data, "H2OFrame")) {
+    data <- as.data.frame(data)
+  }
+  if (is.null(pred_fun)) {
+    pred_fun <- function(model, data, ...) {
+      xvars <- model@parameters$x
+      stats::predict(model, h2o::as.h2o(collapse::ss(data, , xvars)), ...)
+    }
+  }
+
+  partial_dependence.default(
+    object = object,
     v = v,
     data = data,
     pred_fun = pred_fun,
@@ -196,5 +247,5 @@ partial_dependence.explainer <- function(
     pred_fun(object, data_long, ...), trafo = trafo, which_pred = which_pred
   )
   dim(pred) <- c(n, p)
-  collapse::fmean.matrix(pred, w = w, use.g.names = FALSE)
+  collapse::fmean(pred, w = w, use.g.names = FALSE)
 }

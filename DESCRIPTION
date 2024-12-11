@@ -1,6 +1,6 @@
 Package: effectplots
 Title: Effect Plots
-Version: 0.1.0
+Version: 0.2.0
 Authors@R: 
     person("Michael", "Mayer", , "mayermichael79@gmail.com", role = c("aut", "cre"))
 Description: High-performance implementation of various effect plots
@@ -23,9 +23,10 @@ Config/testthat/edition: 3
 URL: https://github.com/mayer79/effectplots
 BugReports: https://github.com/mayer79/effectplots/issues
 LinkingTo: Rcpp
+Enhances: h2o
 NeedsCompilation: yes
-Packaged: 2024-11-15 11:30:14 UTC; mayer
+Packaged: 2024-12-11 18:33:47 UTC; mayer
 Author: Michael Mayer [aut, cre]
 Maintainer: Michael Mayer <mayermichael79@gmail.com>
 Repository: CRAN
-Date/Publication: 2024-11-18 13:50:04 UTC
+Date/Publication: 2024-12-11 18:50:01 UTC

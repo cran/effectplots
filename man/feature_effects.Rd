@@ -5,6 +5,7 @@
 \alias{feature_effects.default}
 \alias{feature_effects.ranger}
 \alias{feature_effects.explainer}
+\alias{feature_effects.H2OModel}
 \title{Feature Effects}
 \usage{
 feature_effects(object, ...)
@@ -21,7 +22,7 @@ feature_effects(object, ...)
   w = NULL,
   breaks = "Sturges",
   right = TRUE,
-  discrete_m = 5L,
+  discrete_m = 13L,
   outlier_iqr = 2,
   calc_pred = TRUE,
   pd_n = 500L,
@@ -43,7 +44,7 @@ feature_effects(object, ...)
   w = NULL,
   breaks = "Sturges",
   right = TRUE,
-  discrete_m = 5L,
+  discrete_m = 13L,
   outlier_iqr = 2,
   calc_pred = TRUE,
   pd_n = 500L,
@@ -64,7 +65,28 @@ feature_effects(object, ...)
   w = object$weights,
   breaks = "Sturges",
   right = TRUE,
-  discrete_m = 5L,
+  discrete_m = 13L,
+  outlier_iqr = 2,
+  calc_pred = TRUE,
+  pd_n = 500L,
+  ale_n = 50000L,
+  ale_bin_size = 200L,
+  ...
+)
+
+\method{feature_effects}{H2OModel}(
+  object,
+  data,
+  v = object@parameters$x,
+  y = NULL,
+  pred = NULL,
+  pred_fun = NULL,
+  trafo = NULL,
+  which_pred = NULL,
+  w = object@parameters$weights_column$column_name,
+  breaks = "Sturges",
+  right = TRUE,
+  discrete_m = 13L,
   outlier_iqr = 2,
   calc_pred = TRUE,
   pd_n = 500L,
@@ -79,72 +101,89 @@ feature_effects(object, ...)
 \item{...}{Further arguments passed to \code{pred_fun()}, e.g., \code{type = "response"} in
 a \code{glm()} or (typically) \code{prob = TRUE} in classification models.}
 
-\item{v}{Vector of variable names to calculate statistics.}
+\item{v}{Variable names to calculate statistics for.}
 
 \item{data}{Matrix or data.frame.}
 
 \item{y}{Numeric vector with observed values of the response.
 Can also be a column name in \code{data}. Omitted if \code{NULL} (default).}
 
-\item{pred}{Numeric vector with predictions. If \code{NULL}, it is calculated as
-\code{pred_fun(object, data, ...)}. Used to save time if \code{d()} is to be
-called multiple times.}
+\item{pred}{Pre-computed predictions (as from \verb{predict()/pred_fun()). If }NULL\verb{, it is calculated as }pred_fun(object, data, ...)`.}
 
 \item{pred_fun}{Prediction function, by default \code{stats::predict}.
 The function takes three arguments (names irrelevant): \code{object}, \code{data}, and \code{...}.}
 
 \item{trafo}{How should predictions be transformed?
 A function or \code{NULL} (default). Examples are \code{log} (to switch to link scale)
-or \code{exp} (to switch from link scale to the original scale).}
+or \code{exp} (to switch from link scale to the original scale).
+Applied after \code{which_pred}.}
 
 \item{which_pred}{If the predictions are multivariate: which column to pick
-(integer or column name). By default \code{NULL} (picks last column).}
+(integer or column name). By default \code{NULL} (picks last column). Applied before
+\code{trafo}.}
 
-\item{w}{Optional vector with case weights. Can also be a column name in \code{data}.}
+\item{w}{Optional vector with case weights. Can also be a column name in \code{data}.
+Having observations with non-positive weight is equivalent to excluding them.}
 
-\item{breaks}{An integer, vector, string or function specifying the bins
-of the numeric X variables as in \code{\link[graphics:hist]{graphics::hist()}}. The default is "Sturges".
-To allow varying values of \code{breaks} across variables, it can be a list of the
-same length as \code{v}, or a \emph{named} list with \code{breaks} for certain variables.}
+\item{breaks}{An integer, vector, or "Sturges" (the default) used to determine
+bin breaks of continuous features. Values outside the total bin range are placed
+in the outmost bins. To allow varying values of \code{breaks} across features,
+\code{breaks} can be a list of the same length as \code{v}, or a \emph{named} list with breaks
+for certain variables.}
 
 \item{right}{Should bins be right-closed? The default is \code{TRUE}.
-Vectorized over \code{v}. Only relevant for numeric X.}
+Vectorized over \code{v}. Only relevant for continuous features.}
 
-\item{discrete_m}{Numeric X variables with up to this number of unique values
-should not be binned and treated as a factor (after calculating partial dependence)
-The default is 5. Vectorized over \code{v}.}
+\item{discrete_m}{Numeric features with up to this number of unique values should not
+be binned but rather treated as discrete. The default is 13. Vectorized over \code{v}.}
 
-\item{outlier_iqr}{Outliers of a numeric X are capped via the boxplot rule, i.e.,
-outside \code{outlier_iqr} * IQR from the quartiles. The default is 2 is more
-conservative than the usual rule to account for right-skewed distributions.
-Set to 0 or \code{Inf} for no capping. Note that at most 10k observations are sampled
-to calculate quartiles. Vectorized over \code{v}.}
+\item{outlier_iqr}{If \code{breaks} is an integer or "Sturges", the breaks of a continuous
+feature are calculated without taking into account feature values outside
+quartiles +- \code{outlier_iqr} * IQR (where <= 9997 values are used to calculate the
+quartiles). To let the breaks cover the full data range, set \code{outlier_iqr} to
+0 or \code{Inf}. Vectorized over \code{v}.}
 
 \item{calc_pred}{Should predictions be calculated? Default is \code{TRUE}. Only relevant
 if \code{pred = NULL}.}
 
 \item{pd_n}{Size of the data used for calculating partial dependence.
 The default is 500. For larger \code{data} (and \code{w}), \code{pd_n} rows are randomly sampled.
-Each variable specified by \code{v} uses the same subsample. Set to 0 to omit.}
+Each variable specified by \code{v} uses the same sample.
+Set to 0 to omit PD calculations.}
 
 \item{ale_n}{Size of the data used for calculating ALE.
 The default is 50000. For larger \code{data} (and \code{w}), \code{ale_n} rows are randomly
-sampled. Each variable specified by \code{v} uses the same subsample. Set to 0 to omit.}
+sampled. Each variable specified by \code{v} uses the same sample.
+Set to 0 to omit ALE calculations.}
 
 \item{ale_bin_size}{Maximal number of observations used per bin for ALE calculations.
 If there are more observations in a bin, \code{ale_bin_size} indices are
-randomly sampled. The default is 200. Applied after subsampling regarding \code{ale_n}.}
+randomly sampled. The default is 200. Applied after sampling regarding \code{ale_n}.}
 
-\item{seed}{Optional random seed (an integer) used for:
+\item{seed}{Optional integer random seed used for:
 \itemize{
-\item Partial dependence: select background data if \code{n > pd_n}.
-\item ALE: select background data if \code{n > ale_n} and for bins > \code{ale_bin_size}.
-\item Capping X: quartiles are selected based on 10k observations.
+\item \emph{Partial dependence:} select background data if \code{n > pd_n}.
+\item \emph{ALE:} select background data if \code{n > ale_n}, and for bins > \code{ale_bin_size}.
+\item \emph{Calculating breaks:} The bin range is determined without values outside
+quartiles +- 2 IQR using a sample of <= 9997 observations to calculate quartiles.
 }}
 }
 \value{
-A list (of class "EffectData") with a data.frame of statistics per feature. Use
-single bracket subsetting to select part of the output.
+A list (of class "EffectData") with a data.frame per feature having columns:
+\itemize{
+\item \code{bin_mid}: Bin mid points. In the plots, the bars are centered around these.
+\item \code{bin_width}: Absolute width of the bin. In the plots, these equal the bar widths.
+\item \code{bin_mean}: For continuous features, the (possibly weighted) average feature
+value within bin. For discrete features equivalent to \code{bin_mid}.
+\item \code{N}: The number of observations within bin.
+\item \code{weight}: The weight sum within bin. When \code{w = NULL}, equivalent to \code{N}.
+\item Different statistics, depending on the function call.
+}
+
+Use single bracket subsetting to select part of the output. Note that each
+data.frame contains an attribute "discrete" with the information whether the
+feature is discrete or continuous. This attribute might be lost when you manually
+modify the data.frames.
 }
 \description{
 This is the main function of the package. By default, it calculates
@@ -159,15 +198,18 @@ The difference to average observed y values shows model bias.
 both \code{y} and predictions are available. Useful to study model bias.
 \item "pd": Partial dependence (Friedman, 2001): See \code{\link[=partial_dependence]{partial_dependence()}}.
 Evaluated at bin averages, not at bin midpoints.
-\item "ale": Accumulated local effects (Apley, 2020): See \code{\link[=ale]{ale()}}. Only for numeric X.
+\item "ale": Accumulated local effects (Apley, 2020): See \code{\link[=ale]{ale()}}.
+Only for continuous features.
 }
 
 Additionally, corresponding counts/weights are calculated, and
 standard deviations of observed y and residuals.
 
-Numeric X with more than \code{discrete_m = 5} disjoint values are binned as in
-\code{\link[graphics:hist]{graphics::hist()}} via \code{breaks}. Before calculating bins, outliers are capped
-at +-2 IQR from the quartiles.
+Numeric features with more than \code{discrete_m = 13} disjoint values are binned via
+\code{breaks}. If \code{breaks} is a single integer or "Sturges", the total bin range is
+calculated without values outside +-2 IQR from the quartiles.
+Values outside the bin range are placed in the outermost bins. Note that
+at most 9997 observations are used to calculate quartiles and IQR.
 
 All averages and standard deviation are weighted by optional weights \code{w}.
 
@@ -184,9 +226,11 @@ If you need only one specific statistic, you can use the simplified APIs of
 \itemize{
 \item \code{feature_effects(default)}: Default method.
 
-\item \code{feature_effects(ranger)}: Method for "ranger" models.
+\item \code{feature_effects(ranger)}: Method for ranger models.
 
-\item \code{feature_effects(explainer)}: Method for DALEX "explainer".
+\item \code{feature_effects(explainer)}: Method for DALEX explainer.
+
+\item \code{feature_effects(H2OModel)}: Method for H2O models.
 
 }}
 \examples{

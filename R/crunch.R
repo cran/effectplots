@@ -1,30 +1,39 @@
-#' Check if Vector is Numeric
-#'
-#' Internal function used to check if a variable is numeric *and* has more than
-#' m disjoint values. The function shines for extremely long vectors (~1e7).
+#' Turn Input either Double or Factor
 #'
 #' @noRd
 #' @keywords internal
 #'
 #' @param x A vector or factor.
-#' @param m How many disjoint values will return FALSE?
-#' @returns `TRUE` if x is numeric with > m disjoint values, and `FALSE` otherwise.
-is_continuous <- function(x, m = 5L) {
+#' @param m If `x` is numeric: Up to which number of disjoint values is it a factor?
+#' @param ix_sub Subset for pre-check. If not `NULL`, length(x) > 9997.
+#' @returns
+#'   A double vector if x is numeric with > m disjoint values.
+#'   Otherwise, a factor with explicit missings.
+factor_or_double <- function(x, m = 5L, ix_sub = NULL) {
   if (!is.numeric(x)) {
-    return(FALSE)
+    if (is.factor(x)) {
+      return(collapse::qF(x, sort = TRUE, na.exclude = !anyNA(unclass(x))))
+    }
+    return(collapse::qF(x, sort = FALSE, na.exclude = FALSE))
   }
-  M <- 10000L
-  if (m >= M) {
-    stop("Too large value for m")
+  if (is.double(x)) {
+    # {collapse} seems to distinguish positive and negative zeros
+    # https://github.com/SebKrantz/collapse/issues/648
+    # Adding 0 to a double turns negative 0 to positive ones (ISO/IEC 60559)
+    collapse::setop(x, "+", 0.0)
   }
-  if (length(x) <= M) {
-    return(collapse::fnunique(x) > m)
+  if (!is.null(ix_sub)) {  # we have >10k values
+    if (m >= length(ix_sub)) {
+      stop("Too large value for m")
+    }
+    if (collapse::fnunique(x[ix_sub]) > m) {
+      return(as.double(x))
+    }
   }
-  if (collapse::fnunique(x[1L:M]) > m) {
-    return(TRUE)
-  }
-  return(collapse::fnunique(x) > m)
+  xf <- collapse::qF(x, sort = FALSE, na.exclude = FALSE)
+  if (collapse::fnlevels(xf) > m) as.double(x) else xf
 }
+
 
 #' IQR-based Outlier Capping
 #'
@@ -35,51 +44,50 @@ is_continuous <- function(x, m = 5L) {
 #'
 #' @param x A numeric vector.
 #' @param m How many IQRs from the quartiles do we start capping?
-#' @param nmax Maximal number of observations used to calculate capping limits.
-#' @returns Like `x`, but eventually capped.
-wins_iqr <- function(x, m = 1.5, nmax = 10000L) {
-  xs <- if (length(x) > nmax) sample(x, nmax) else x
-  q <- collapse::fquantile(xs, probs = c(0.25, 0.75), na.rm = TRUE, names = FALSE)
-  r <- m * diff(q)
-  if (r <= 0) {
-    return(x)
+#' @param ix_sub Subset used to calculate approximate quartiles. Can be `NULL`.
+#' @returns Lower and upper bound, or `NULL`.
+wins_iqr <- function(x, m = 1.5, ix_sub = NULL) {
+  if (!is.null(ix_sub)) {
+    x <- x[ix_sub]
   }
-  clamp2(as.double(x), low = as.double(q[1L] - r), high = as.double(q[2L] + r))
+  q <- collapse::fquantile(x, probs = c(0.25, 0.75), na.rm = TRUE, names = FALSE)
+  r <- m * diff(q)
+  if (r <= 0 || is.na(r)) {
+    return(NULL)
+  }
+  return(q + c(-r, r))
 }
 
-#' Break Calculation like hist()
+#' Fast Break Calculation
 #'
-#' Internal function used to calculate breaks with the same `breaks` as `hist()`.
-#' The only difference is that when `breaks` is a string and length(x) >= 100k, the
-#' function returns 50.
+#' Internal function used to calculate breaks.
 #'
 #' @noRd
 #' @keywords internal
 #'
 #' @param x A numeric vector.
-#' @param breaks An integer, a vector, a string, or a function.
+#' @param breaks An integer, a vector, or "Sturges" (the default).
+#' @param outlier_iqr See [feature_effects()].
+#' @param ix_sub An optional subsetting vector to calculate quartiles.
 #' @returns A vector of pretty breaks.
-hist2 <- function(x, breaks = "Sturges") {
-  x <- collapse::na_rm(x)
+fbreaks <- function(x, breaks = "Sturges", outlier_iqr = 0, ix_sub = NULL) {
   if (is.character(breaks)) {
-    breaks <- tolower(breaks)
-    if (breaks == "sturges") {
-      breaks <- grDevices::nclass.Sturges(x)
-    } else if (length(x) >= 1e5) {
-      breaks <- 50L
-    } else if (breaks == "scott") {
-      breaks <- min(50L, grDevices::nclass.scott(x))
-    } else if (breaks %in% c("fd", "freedman-diaconis")) {
-      breaks <- min(50L, grDevices::nclass.FD(x))
+    if (tolower(breaks) == "sturges") {
+      breaks <- ceiling(log2(length(x)) + 1)
     } else {
       stop("unknown 'breaks' algo")
     }
   }
-  if (is.function(breaks)) {
-    breaks <- breaks(x)
-  }
   if (length(breaks) == 1L) {
-    breaks <- pretty(collapse::.range(x, na.rm = TRUE), n = breaks, min.n = 1)
+    r <- collapse::.range(x, na.rm = TRUE)
+    if (outlier_iqr > 0 && is.finite(outlier_iqr)) {
+      r2 <- wins_iqr(x, m = outlier_iqr, ix_sub = ix_sub)
+      if (!is.null(r2)) {
+        r[1L] <- max(r[1L], r2[1L])
+        r[2L] <- min(r[2L], r2[2L])
+      }
+    }
+    breaks <- pretty(r, n = breaks, min.n = 1)
   } else if (is.numeric(breaks)) {
     breaks <- sort(unique(breaks))
   } else {
@@ -102,9 +110,9 @@ hist2 <- function(x, breaks = "Sturges") {
 #' @returns A matrix with counts, weights, means and standard deviations of
 #'   columns in `x`.
 grouped_stats <- function(x, g, w = NULL, sd_cols = colnames(x)) {
-  N <- collapse::fnobs(g, g = g)
+  N <- collapse::fnobs(g, g = g, use.g.names = TRUE)
   if (!is.null(w)) {
-    weight <- collapse::fsum(w, g = g, fill = TRUE)
+    weight <- collapse::fsum(w, g = g, fill = TRUE, use.g.names = FALSE)
   } else {
     weight <- N
   }
@@ -126,41 +134,86 @@ grouped_stats <- function(x, g, w = NULL, sd_cols = colnames(x)) {
   cbind(out, M)
 }
 
-#' Fast findInterval()
+#' Fast cut()
 #'
-#' Internal function used to bin a numeric `x`. Uses `findInterval()` when breaks are
-#' unequally long, and an algorithm adapted from `spatstat.utils::fastFindInterval()`
-#' otherwise.
+#' Bins a numeric vector `x` into bins specified by `breaks`.
+#' Values outside the range of `breaks` will be placed in the lowest or highest bin.
+#' Set `labels = FALSE` to return integer codes only, and `explicit_na = TRUE` for
+#' maximal synergy with the "collapse" package.
+#' Uses the logic of `spatstat.utils::fastFindInterval()` for equi-length bins.
 #'
-#' @noRd
-#' @keywords internal
-#'
-#' @param x A numeric vector to bin.
-#' @param br A monotonically increasing vector of breaks.
+#' @param x A numeric vector.
+#' @param breaks A monotonically increasing numeric vector of breaks.
+#' @param labels A character vector of length `length(breaks) - 1` with bin labels.
+#'   By default (`NULL`), the levels `c("1", "2", ...)` are used. Set to `FALSE`
+#'   to return raw integer codes.
 #' @param right Right closed bins (`TRUE`, default) or not?
-#' @returns Binned version of `x`.
-# Fast implementation of
-findInterval2 <- function(x, breaks, right = TRUE) {
-  nbreaks <- length(breaks)
-  if (nbreaks <= 2L) {
-    return(rep.int(1L, times = length(x)))
+#' @param explicit_na If `TRUE`, missing values are encoded by the bin value
+#'   `length(breaks)`, having `NA` as corresponding factor level. The factor will get
+#'   the additional class "na.included".
+#' @returns Binned version of `x`. Either a factor, or integer codes.
+#' @export
+#' @examples
+#' x <- c(NA, 1:10)
+#' fcut(x, breaks = c(3, 5, 7))
+#' fcut(x, breaks = c(3, 5, 7), right = FALSE)
+#' fcut(x, breaks = c(3, 5, 7), labels = FALSE)
+#'
+fcut <- function(x, breaks, labels = NULL, right = TRUE, explicit_na = FALSE) {
+  nb <- length(breaks) - 1L
+  stopifnot(
+    is.numeric(x),
+    nb >= 1L,
+    !is.unsorted(breaks),
+    is.null(labels) || isFALSE(labels) || (is.character(labels) && length(labels) == nb)
+  )
+  codes_only <- isFALSE(labels)
+  if (!is.character(labels)) {
+    labels <- as.character(seq_len(nb))  # need for equi-length case even if codes_only
   }
-  # from hist2.default()
+
+  # From hist2.default()
   h <- diff(breaks)
   if (!all(h > 0)) {
     stop("Breaks must be strictly increasing")
   }
-  if (diff(range(h)) < 1e-07 * mean(h)) {  # equidist
-    findInterval_equi(
-      as.double(x),
-      low = as.double(breaks[1L]),
-      high = as.double(breaks[nbreaks]),
-      nbin = nbreaks - 1L,
-      right = as.logical(right)
+
+  # Three cases: one bin, equi-length bins, other
+  if (nb == 1L) {
+    out <- rep.int(1L, length(x))
+    if (anyNA(x)) {
+      if (explicit_na) {
+        out[is.na(x)] <- 2L
+        labels <- c(labels, NA_character_)
+      } else {
+        out[is.na(x)] <- NA_integer_
+      }
+    }
+  } else if (diff(range(h)) < 1e-07 * mean(h)) {  # spatstat.utils::fastFindInterval()
+    return(
+      findInterval_equi(
+        as.double(x),
+        low = as.double(breaks[1L]),
+        high = as.double(breaks[nb + 1L]),
+        nbin = nb,
+        right = as.logical(right),
+        labels = labels,
+        explicit_na = as.logical(explicit_na),
+        codes_only = as.logical(codes_only)
+      )
     )
   } else {
-    findInterval(
+    out <- findInterval(
       x, vec = breaks, rightmost.closed = TRUE, left.open = right, all.inside = TRUE
     )
+    if (explicit_na && anyNA(x)) {
+      out[is.na(x)] <- nb + 1L
+      labels <- c(labels, NA_character_)
+    }
   }
+  if (codes_only) {
+    return(out)
+  }
+  structure(out, levels = labels, class = c("factor", if (explicit_na) "na.included"))
 }
+

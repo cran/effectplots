@@ -5,6 +5,7 @@
 \alias{partial_dependence.default}
 \alias{partial_dependence.ranger}
 \alias{partial_dependence.explainer}
+\alias{partial_dependence.H2OModel}
 \title{Partial Dependence}
 \usage{
 partial_dependence(object, ...)
@@ -19,7 +20,7 @@ partial_dependence(object, ...)
   w = NULL,
   breaks = "Sturges",
   right = TRUE,
-  discrete_m = 5L,
+  discrete_m = 13L,
   outlier_iqr = 2,
   pd_n = 500L,
   seed = NULL,
@@ -36,7 +37,7 @@ partial_dependence(object, ...)
   w = NULL,
   breaks = "Sturges",
   right = TRUE,
-  discrete_m = 5L,
+  discrete_m = 13L,
   outlier_iqr = 2,
   pd_n = 500L,
   seed = NULL,
@@ -53,7 +54,24 @@ partial_dependence(object, ...)
   w = object$weights,
   breaks = "Sturges",
   right = TRUE,
-  discrete_m = 5L,
+  discrete_m = 13L,
+  outlier_iqr = 2,
+  pd_n = 500L,
+  seed = NULL,
+  ...
+)
+
+\method{partial_dependence}{H2OModel}(
+  object,
+  data,
+  v = object@parameters$x,
+  pred_fun = NULL,
+  trafo = NULL,
+  which_pred = NULL,
+  w = object@parameters$weights_column$column_name,
+  breaks = "Sturges",
+  right = TRUE,
+  discrete_m = 13L,
   outlier_iqr = 2,
   pd_n = 500L,
   seed = NULL,
@@ -66,7 +84,7 @@ partial_dependence(object, ...)
 \item{...}{Further arguments passed to \code{pred_fun()}, e.g., \code{type = "response"} in
 a \code{glm()} or (typically) \code{prob = TRUE} in classification models.}
 
-\item{v}{Vector of variable names to calculate statistics.}
+\item{v}{Variable names to calculate statistics for.}
 
 \item{data}{Matrix or data.frame.}
 
@@ -75,47 +93,65 @@ The function takes three arguments (names irrelevant): \code{object}, \code{data
 
 \item{trafo}{How should predictions be transformed?
 A function or \code{NULL} (default). Examples are \code{log} (to switch to link scale)
-or \code{exp} (to switch from link scale to the original scale).}
+or \code{exp} (to switch from link scale to the original scale).
+Applied after \code{which_pred}.}
 
 \item{which_pred}{If the predictions are multivariate: which column to pick
-(integer or column name). By default \code{NULL} (picks last column).}
+(integer or column name). By default \code{NULL} (picks last column). Applied before
+\code{trafo}.}
 
-\item{w}{Optional vector with case weights. Can also be a column name in \code{data}.}
+\item{w}{Optional vector with case weights. Can also be a column name in \code{data}.
+Having observations with non-positive weight is equivalent to excluding them.}
 
-\item{breaks}{An integer, vector, string or function specifying the bins
-of the numeric X variables as in \code{\link[graphics:hist]{graphics::hist()}}. The default is "Sturges".
-To allow varying values of \code{breaks} across variables, it can be a list of the
-same length as \code{v}, or a \emph{named} list with \code{breaks} for certain variables.}
+\item{breaks}{An integer, vector, or "Sturges" (the default) used to determine
+bin breaks of continuous features. Values outside the total bin range are placed
+in the outmost bins. To allow varying values of \code{breaks} across features,
+\code{breaks} can be a list of the same length as \code{v}, or a \emph{named} list with breaks
+for certain variables.}
 
 \item{right}{Should bins be right-closed? The default is \code{TRUE}.
-Vectorized over \code{v}. Only relevant for numeric X.}
+Vectorized over \code{v}. Only relevant for continuous features.}
 
-\item{discrete_m}{Numeric X variables with up to this number of unique values
-should not be binned and treated as a factor (after calculating partial dependence)
-The default is 5. Vectorized over \code{v}.}
+\item{discrete_m}{Numeric features with up to this number of unique values should not
+be binned but rather treated as discrete. The default is 13. Vectorized over \code{v}.}
 
-\item{outlier_iqr}{Outliers of a numeric X are capped via the boxplot rule, i.e.,
-outside \code{outlier_iqr} * IQR from the quartiles. The default is 2 is more
-conservative than the usual rule to account for right-skewed distributions.
-Set to 0 or \code{Inf} for no capping. Note that at most 10k observations are sampled
-to calculate quartiles. Vectorized over \code{v}.}
+\item{outlier_iqr}{If \code{breaks} is an integer or "Sturges", the breaks of a continuous
+feature are calculated without taking into account feature values outside
+quartiles +- \code{outlier_iqr} * IQR (where <= 9997 values are used to calculate the
+quartiles). To let the breaks cover the full data range, set \code{outlier_iqr} to
+0 or \code{Inf}. Vectorized over \code{v}.}
 
 \item{pd_n}{Size of the data used for calculating partial dependence.
 The default is 500. For larger \code{data} (and \code{w}), \code{pd_n} rows are randomly sampled.
-Each variable specified by \code{v} uses the same subsample. Set to 0 to omit.}
+Each variable specified by \code{v} uses the same sample.
+Set to 0 to omit PD calculations.}
 
-\item{seed}{Optional random seed (an integer) used for:
+\item{seed}{Optional integer random seed used for:
 \itemize{
-\item Partial dependence: select background data if \code{n > pd_n}.
-\item Capping X: quartiles are selected based on 10k observations.
+\item \emph{Partial dependence:} select background data if \code{n > pd_n}.
+\item \emph{Calculating breaks:} The bin range is determined without values outside
+quartiles +- 2 IQR using a sample of <= 9997 observations to calculate quartiles.
 }}
 }
 \value{
-A list (of class "EffectData") with a data.frame of statistics per feature. Use
-single bracket subsetting to select part of the output.
+A list (of class "EffectData") with a data.frame per feature having columns:
+\itemize{
+\item \code{bin_mid}: Bin mid points. In the plots, the bars are centered around these.
+\item \code{bin_width}: Absolute width of the bin. In the plots, these equal the bar widths.
+\item \code{bin_mean}: For continuous features, the (possibly weighted) average feature
+value within bin. For discrete features equivalent to \code{bin_mid}.
+\item \code{N}: The number of observations within bin.
+\item \code{weight}: The weight sum within bin. When \code{w = NULL}, equivalent to \code{N}.
+\item Different statistics, depending on the function call.
+}
+
+Use single bracket subsetting to select part of the output. Note that each
+data.frame contains an attribute "discrete" with the information whether the
+feature is discrete or continuous. This attribute might be lost when you manually
+modify the data.frames.
 }
 \description{
-Calculates PD for one or multiple \code{X} variables.
+Calculates PD for one or multiple features.
 
 PD was introduced by Friedman (2001) to study the (main) effects
 of a ML model. PD of a model f and variable \code{X} at a certain value g
@@ -133,9 +169,11 @@ and eventually weighted by \code{w}.
 \itemize{
 \item \code{partial_dependence(default)}: Default method.
 
-\item \code{partial_dependence(ranger)}: Default method.
+\item \code{partial_dependence(ranger)}: Method for ranger models.
 
-\item \code{partial_dependence(explainer)}: Default method.
+\item \code{partial_dependence(explainer)}: Method for DALEX explainers.
+
+\item \code{partial_dependence(H2OModel)}: Method for H2O models.
 
 }}
 \examples{

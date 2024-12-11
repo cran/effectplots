@@ -1,34 +1,41 @@
-test_that("is_continuous() works", {
-  expect_false(is_continuous("A", m = 2))
+test_that("factor_or_double() works", {
+  # Character
+  x <- c("B", NA, "A")
+  expect_equal(factor_or_double(x), collapse::qF(x, sort = FALSE, na.exclude = FALSE))
 
-  expect_false(is_continuous(1:10, m = 10))
-  expect_true(is_continuous(1:10, m = 9))
-
-  expect_true(is_continuous(1:1e5, m = 10))
-  expect_false(is_continuous(rep(1, times = 1e5), m = 1))
-  expect_error(is_continuous(1:1e5, m = 1:1e4))
-})
-
-test_that("clamp2() works", {
-  x <- c(1:10, NA)
-  expect_equal(clamp2(x, 0, 11), x)
-  expect_equal(clamp2(x, low = 2, high = 11), pmax(2, x))
-  expect_equal(clamp2(x, low = 0, high = 8), pmin(8, x))  # not symmetric
-  expect_equal(clamp2(x, low = 3, high = 7), pmax(3, pmin(7, x)))
-})
-
-test_that("poor_man_stack() works (test could be improved)", {
-  y <- c("a", "b", "c")
-  z <- c("aa", "bb", "cc")
-  X <- data.frame(x = 1:3, y = y, z = z)
-  out <- poor_man_stack(X, to_stack = c("y", "z"))
-  xpected <- data.frame(
-    x = rep(1:3, times = 2L),
-    varying_ = factor(rep(c("y", "z"), each = 3L)),
-    value_ = c(y, z)
+  # Factor
+  x <- factor(x, levels = c("A", "B", "C"))
+  expect_equal(
+    factor_or_double(x), collapse::qF(x, sort = TRUE, na.exclude = FALSE)
   )
-  expect_equal(out, xpected)
-  expect_error(poor_man_stack(cbind(a = 1:3, b = 2:4), to_stack = "b"))
+
+  # Logical
+  x <- c(TRUE, FALSE)
+  expect_equal(factor_or_double(x), collapse::qF(x, sort = FALSE, na.exclude = FALSE))
+
+  # Non-discrete numeric vector (short)
+  x <- 1:10
+  res <- factor_or_double(x, m = 4)
+  expect_equal(res, x)
+  expect_true(is.double(res))
+
+  # Discrete numeric vector (short)
+  x <- rep(1:4, each = 10)
+  res <- factor_or_double(x, m = 4)
+  expect_equal(res, collapse::qF(x, na.exclude = FALSE, sort = FALSE))
+
+  # Non-discrete numeric vector (long)
+  x <- 1:10
+  res <- factor_or_double(x, m = 4, ix_sub = 1:5)
+  expect_equal(res, x)
+
+  # Discrete numeric vector (long)
+  x <- rep(1:4, each = 10)
+  res <- factor_or_double(x, m = 4, ix_sub = 1:5)
+  expect_equal(res, collapse::qF(x, na.exclude = FALSE, sort = FALSE))
+
+  # m needs to be smaller than length(ix_sub)
+  expect_error(factor_or_double(x, m = 4, ix_sub = 1:2))
 })
 
 test_that("grouped_stats() works", {
@@ -70,58 +77,165 @@ test_that("Test that grouped_stats() uses sort(funique) + NA as order", {
   }
 })
 
-test_that("hist2() typically gives identical breaks than graphics::hist()", {
+test_that("fbreaks() without outlier handling gives same breaks like hist()", {
   set.seed(1)
   x <- rnorm(1000)
 
-  breaks <- list(
-    5,
-    -10:10,
-    "FD",
-    "sturges",
-    "scott",
-    function(x) sqrt(length(x))
-  )
+  breaks <- list(5, -10:10, "Sturges")
   for (b in breaks) {
-    expect_equal(hist2(x, b), graphics::hist(x, b, plot = FALSE)$breaks)
-  }
-})
-
-test_that("hist2() works slightly different for very large vectors", {
-  x <- 1:1e6
-  expect_equal(hist2(x, breaks = "scott"), hist(x, breaks = 50, plot = FALSE)$breaks)
-})
-
-test_that("hist2() does not like unknown strings", {
-  expect_error(hist2(1:10, breaks = "hello"))
-})
-
-test_that("findInterval_equi() provides equal results as findInterval()", {
-  x <- c(-1, NA, 2, 1, 0.5, 0, 10)
-  br <- seq(0, 2, length.out = 5 + 1)
-  for (r in c(FALSE, TRUE)) {
     expect_equal(
-      findInterval_equi(x, low = 0, high = 2, nbin = 5L, right = r),
-      findInterval(x, br, rightmost.closed = TRUE, all.inside = TRUE, left.open = r)
+      fbreaks(x, b, outlier_iqr = 0),
+      graphics::hist(x, b, plot = FALSE)$breaks
     )
   }
 })
 
-test_that("findInterval2() provides equal results as findInterval()", {
-  x <- c(-1, NA, 2, 1, 0.5, 0, 10)
-  br <- seq(0, 2, length.out = 6)
-  for (r in c(FALSE, TRUE)) {
+test_that("fbreaks() without outliers gives same breaks like hist()", {
+  x <- rep(0:1, times = c(90, 10))  # IQR is 0
+  expect_equal(
+    fbreaks(x, breaks = 5, outlier_iqr = 1.5),
+    graphics::hist(x, breaks = 5, plot = FALSE)$breaks
+  )
+})
+
+test_that("fbreaks() with outlier handling gives same breaks like hist()", {
+  set.seed(1)
+  x <- rnorm(1000)
+  q <- wins_iqr(x, m = 1.5, ix_sub = 1:100)
+  xcapped <- pmin(pmax(x, q[1L]), q[2L])
+
+  breaks <- list(5, -10:10, "Sturges")
+  for (b in breaks) {
     expect_equal(
-      findInterval2(x, br, right = r),
-      findInterval(x, br, rightmost.closed = TRUE, all.inside = TRUE, left.open = r)
+      fbreaks(x, b, outlier_iqr = 1.5, ix_sub = 1:100),
+      graphics::hist(xcapped, b, plot = FALSE)$breaks
     )
   }
-
-  # Special cases
-  expect_equal(findInterval2(x, 1:2, right = r), rep(1, length = length(x)))
-  expect_equal(findInterval2(x, 1, right = r), rep(1, length = length(x)))
-
-  # Breaks increasing?
-  expect_error(findInterval2(x, breaks = c(4, 3, 1)))
 })
+
+test_that("fbreaks() does not like unknown strings", {
+  expect_error(fbreaks(1:10, breaks = "scott"))
+})
+
+test_that("fcut() catches problematic input", {
+  expect_error(fcut("a", breaks = 1:2))
+  expect_error(fcut(1:3, breaks = 2:1))
+  expect_error(fcut(1:3, breaks = 1))
+  expect_error(fcut(1:3, breaks = 1:2, labels = TRUE))
+  expect_error(fcut(1:3, breaks = 1:3, labels = "A"))
+})
+
+test_that("fcut() works in single-bin mode", {
+  breaks <- 1:2
+  x <- c(NA, 1:10)
+
+  # Codes only
+  out <- fcut(x, breaks = breaks, labels = FALSE)
+  expect_type(out, "integer")
+  expect_equal(out, c(NA, rep(1, times = 10)))
+  expect_equal(
+    fcut(x, breaks = breaks, labels = FALSE, explicit_na = TRUE),
+    c(2L, rep(1, times = 10))
+  )
+
+  # Factor output (without and with explicit missings)
+  expect_equal(
+    fcut(x, breaks = breaks, labels = "A"),
+    as.factor(c(NA, rep("A", times = 10)))
+  )
+  xp <- factor(c(NA, rep("A", times = 10)), levels = c("A", NA), exclude = NULL)
+  class(xp) <- c("factor", "na.included")
+  expect_equal(fcut(x, breaks = breaks, labels = "A", explicit_na = TRUE), xp)
+
+  # No missings, but explicit_na = TRUE; no labels
+  x <- 1:10
+  xp <- factor(rep("1", times = 10))
+  class(xp) <- c("factor", "na.included")
+  expect_equal(fcut(x, breaks = breaks, explicit_na = TRUE), xp)
+})
+
+test_that("fcut() works in unequal-length mode", {
+  breaks <- c(1, 2, 5)
+  x <- c(NA, 1:10)
+
+  # Codes only: right = TRUE/FALSE/explicit.na = TRUE
+  out <- fcut(x, breaks = breaks, labels = FALSE)
+  expect_type(out, "integer")
+  expect_equal(out, rep(c(NA, 1:2), times = c(1, 2, 8)))
+
+  expect_equal(
+    fcut(x, breaks = breaks, labels = FALSE, right = FALSE),
+    rep(c(NA, 1:2), times = c(1, 1, 9))
+  )
+
+  expect_equal(
+    fcut(x, breaks = breaks, labels = FALSE, explicit_na = TRUE),
+    rep(c(3, 1:2), times = c(1, 2, 8))
+  )
+
+  # Factor output (without and with explicit missings)
+  expect_equal(
+    fcut(x, breaks = breaks, labels = c("A", "B")),
+    as.factor(rep(c(NA, "A", "B"), times = c(1, 2, 8)))
+  )
+  xp <- factor(
+    rep(c(NA, "A", "B"), times = c(1, 1, 9)),
+    levels = c("A", "B", NA),
+    exclude = NULL
+  )
+  class(xp) <- c("factor", "na.included")
+  expect_equal(
+    fcut(x, breaks = breaks, labels = c("A", "B"), explicit_na = TRUE, right = FALSE),
+    xp
+  )
+
+  # No missings, but explicit_na = TRUE; no labels
+  x <- 1:10
+  xp <- factor(rep(c("1", "2"), times = c(2, 8)))
+  class(xp) <- c("factor", "na.included")
+  expect_equal(fcut(x, breaks = breaks, explicit_na = TRUE), xp)
+})
+
+test_that("fcut() works in equal-length mode", {
+  breaks <- c(1, 4, 7)
+  x <- c(NA, 1:10)
+
+  # Codes only: right = TRUE/FALSE/explicit.na = TRUE
+  out <- fcut(x, breaks = breaks, labels = FALSE)
+  expect_type(out, "integer")
+  expect_equal(out, rep(c(NA, 1:2), times = c(1, 4, 6)))
+
+  expect_equal(
+    fcut(x, breaks = breaks, labels = FALSE, right = FALSE),
+    rep(c(NA, 1:2), times = c(1, 3, 7))
+  )
+
+  expect_equal(
+    fcut(x, breaks = breaks, labels = FALSE, explicit_na = TRUE),
+    rep(c(3, 1:2), times = c(1, 4, 6))
+  )
+
+  # Factor output (without and with explicit missings)
+  expect_equal(
+    fcut(x, breaks = breaks, labels = c("A", "B")),
+    as.factor(rep(c(NA, "A", "B"), times = c(1, 4, 6)))
+  )
+  xp <- factor(
+    rep(c(NA, "A", "B"), times = c(1, 3, 7)),
+    levels = c("A", "B", NA),
+    exclude = NULL
+  )
+  class(xp) <- c("factor", "na.included")
+  expect_equal(
+    fcut(x, breaks = breaks, labels = c("A", "B"), explicit_na = TRUE, right = FALSE),
+    xp
+  )
+
+  # No missings, but explicit_na = TRUE; no labels
+  x <- 1:10
+  xp <- factor(rep(c("1", "2"), times = c(4, 6)))
+  class(xp) <- c("factor", "na.included")
+  expect_equal(fcut(x, breaks = breaks, explicit_na = TRUE), xp)
+})
+
 
