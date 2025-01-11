@@ -1,6 +1,6 @@
 Package: effectplots
 Title: Effect Plots
-Version: 0.2.0
+Version: 0.2.1
 Authors@R: 
     person("Michael", "Mayer", , "mayermichael79@gmail.com", role = c("aut", "cre"))
 Description: High-performance implementation of various effect plots
@@ -17,7 +17,8 @@ License: GPL (>= 3)
 Depends: R (>= 4.1.0)
 Encoding: UTF-8
 RoxygenNote: 7.3.2
-Imports: collapse, ggplot2, grDevices, patchwork, plotly, Rcpp, stats
+Imports: collapse, ggplot2, grDevices, labeling, patchwork, plotly,
+        Rcpp, scales, stats
 Suggests: testthat (>= 3.0.0)
 Config/testthat/edition: 3
 URL: https://github.com/mayer79/effectplots
@@ -25,8 +26,8 @@ BugReports: https://github.com/mayer79/effectplots/issues
 LinkingTo: Rcpp
 Enhances: h2o
 NeedsCompilation: yes
-Packaged: 2024-12-11 18:33:47 UTC; mayer
+Packaged: 2025-01-11 21:08:02 UTC; mayer
 Author: Michael Mayer [aut, cre]
 Maintainer: Michael Mayer <mayermichael79@gmail.com>
 Repository: CRAN
-Date/Publication: 2024-12-11 18:50:01 UTC
+Date/Publication: 2025-01-11 21:20:02 UTC
