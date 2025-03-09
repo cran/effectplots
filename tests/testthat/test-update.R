@@ -33,7 +33,7 @@ test_that("update() can collapse levels of a factor", {
   expect_equal(M$Petal.Width, res$Petal.Width)
 
   # The result has the right levels (we kept all rows of virginica)
-  expect_equal(levels(res$Species$bin_mid), c("virginica", "other"))
+  expect_equal(levels(res$Species$bin_mid), c("virginica", "other 2"))
 
   # The virginica row remained the same
   expect_equal(
@@ -43,7 +43,7 @@ test_that("update() can collapse levels of a factor", {
 
   # The other two rows have been collapsed
   s1 <- M$Species$bin_mid != "virginica"
-  s2 <- res$Species$bin_mid == "other"
+  s2 <- res$Species$bin_mid == "other 2"
   expect_equal(sum(M$Species$N[s1]), sum(res$Species$N[s2]))
   expect_equal(sum(M$Species$weight[s1]), sum(res$Species$weight[s2]))
   expect_equal(
@@ -73,7 +73,7 @@ test_that("update() can collapse levels of a character", {
   expect_equal(M2$Petal.Width, res$Petal.Width)
 
   # The result has the right levels (we kept all rows of virginica)
-  expect_equal(res$Species$bin_mid, c("virginica", "other"))
+  expect_equal(res$Species$bin_mid, c("virginica", "other 2"))
 })
 
 test_that("update() can remove NA levels", {
@@ -99,21 +99,16 @@ test_that("update() can sort according to importance", {
   expect_error(effect_importance(M, by = "something"))
 })
 
-test_that("update() can drop empty levels", {
+test_that("update() can drop empty levels of continuous features", {
   M2 <- feature_effects(
     fit,
-    v = c("Petal.Length", "Petal.Width", "Species"),
-    data = iris[51:150, ],
+    v = c("Petal.Length"),
+    data = iris,
     y = "Sepal.Length",
     w = "Sepal.Width",
-    breaks = 5
+    breaks = 10
   )
 
-  # setosa is here and stays with a normal update
-  expect_equal(M2$Species[1L, "N"], 0)
-  expect_equal(update(M2)$Species[1L, "N"], 0)
-
-  # Not anymore
-  expect_false("setosa" %in% levels(update(M2, drop_empty = TRUE)$Species$bin_mid))
+  expect_true(any(M2$Petal.Length$N == 0))
+  expect_true(!any(update(M2, drop_empty = TRUE)$Petal.Length$N == 0))
 })
-

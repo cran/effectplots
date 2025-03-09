@@ -21,15 +21,17 @@
 #'   In combination with `collapse_m`, this can be used to collapse rare values of
 #'   discrete numeric features.
 #' @param collapse_m If a factor or character feature has more than `collapse_m` levels,
-#'   rare levels are collapsed into a new level "other". Standard deviations are
-#'   collapsed via root of the weighted average variances. The default is 30.
+#'   rare levels are collapsed into a new level "other p". Standard deviations are
+#'   collapsed via root of the weighted average variances. The default is 15.
 #'   Set to `Inf` for no collapsing.
 #' @param collapse_by How to determine "rare" levels in `collapse_m`?
 #'   Either "weight" (default) or "N". Only matters in situations with case weights `w`.
 #' @param drop_empty Drop empty bins. Equivalent to `drop_below_n = 1`.
+#'   The default is `FALSE`.
 #' @param drop_below_n Drop bins with N below this value. Applied after collapsing.
+#'   The default is 0.
 #' @param drop_below_weight Drop bins with weight below this value. Applied after
-#' collapsing.
+#' collapsing. The default is 0.
 #' @param na.rm Should missing bin centers be dropped? Default is `FALSE`.
 #' @param ... Currently not used.
 #' @returns A modified object of class "EffectData".
@@ -47,7 +49,7 @@ update.EffectData <- function(
   object,
   sort_by = c("no", "pd", "pred_mean", "y_mean", "resid_mean", "ale"),
   to_factor = FALSE,
-  collapse_m = 30L,
+  collapse_m = 15L,
   collapse_by = c("weight", "N"),
   drop_empty = FALSE,
   drop_below_n = 0,
@@ -128,7 +130,7 @@ update_one <- function(
     x_keep <- droplevels(x_keep)
   }
   lvl <- stats::na.omit(as.character(x_keep$bin_mid))
-  oth <- make.names(c(lvl, "other"), unique = TRUE)[length(lvl) + 1L]
+  oth <- paste("other", nrow(x_agg))
   if (fact) {
     levels(x_keep$bin_mid) <- levels(x_keep$bin_mean) <- c(lvl, oth)
   }
